@@ -32,3 +32,5 @@ double solve(const Eigen::MatrixXd& cost_matrix,Eigen::VectorXi& assignment)
 The 2 inputs are a completed cost matrix and an empty assignments vector. The cost matrix can be rectangular or sparse. The rows can refer to some resource, while the
 columns can refer to some task. The semantic meaning of 
 what rows and columns are is up to the user. However, this will treat it as rows - > resource, column - > task
+
+## Tests
