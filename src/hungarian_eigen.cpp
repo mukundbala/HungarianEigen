@@ -1,18 +1,12 @@
 #include "hungarian_eigen.hpp"
 
-
-
 double HungarianEigen::solve(const Eigen::MatrixXd& cost_matrix,Eigen::VectorXi& assignment)
 {
     // use the Eigen::Index object to avoid annoying int comparison warnings
     using Index = Eigen::Index;
 
-    // Get the total number of rows and colums
-    const Index nRows = cost_matrix.rows();
-    const Index nCols = cost_matrix.cols();
-
     // Defensive
-    if (nRows == 0 || nCols == 0)
+    if (cost_matrix.rows() == 0 || cost_matrix.cols() == 0)
     {
         throw std::invalid_argument("Hungarian: Empty Matrix");
     }
@@ -23,6 +17,61 @@ double HungarianEigen::solve(const Eigen::MatrixXd& cost_matrix,Eigen::VectorXi&
         throw std::invalid_argument("Hungarian: Negative Costs in cost matrix.");
     }
 
+    // Catch degenerate cases, like single row or single col
+    if (cost_matrix.cols() == 1)
+    {
+        /*
+        Single column, means that theres num_agents == cost_matrix.rows(), the correct assignment
+        would be the min cost of this column. There is a single task
+        */
+        assignment = Eigen::VectorXi::Constant(cost_matrix.rows(),-1);
+        
+        // The assignment cost is simply the min value
+        Eigen::Index row;
+        double assignment_cost = cost_matrix.col(0).minCoeff(&row);
+
+        // populate the assignment
+        assignment[row] = 0;
+        
+        // assignment cost
+        return assignment_cost;
+    }
+
+    if (cost_matrix.rows() == 1)
+    {
+        /*
+        Single row, means that there is on agent and num_tasks == cost_matrix.cols();
+        */
+       assignment = Eigen::VectorXi::Constant(1,-1);
+
+       Eigen::Index col;
+       double assignment_cost = cost_matrix.row(0).minCoeff(&col);
+
+       assignment[0] = static_cast<int>(col);
+
+       return assignment_cost;
+    }
+
+    Eigen::MatrixXd cost_matrix_padded;
+    bool padding_used {false};
+    constexpr double INFEASIBLE_COST = 1e12;
+
+    if (cost_matrix.rows() != cost_matrix.cols())
+    {
+        padding_used = true;
+
+        Eigen::Index new_sq_dim = std::max(cost_matrix.rows(),cost_matrix.cols());
+
+        // Pad it    
+        cost_matrix_padded = Eigen::MatrixXd::Constant(new_sq_dim,new_sq_dim,INFEASIBLE_COST);
+        cost_matrix_padded.block(0,0,cost_matrix.rows(),cost_matrix.cols()) = cost_matrix;
+    }
+
+
+    // Get the total number of rows and columns.
+    const Index nRows = padding_used ? cost_matrix_padded.rows() : cost_matrix.rows();
+    const Index nCols = padding_used ? cost_matrix_padded.cols() : cost_matrix.cols();
+
     // Find the min dim
     const Index minDim = std::min(nRows, nCols);
 
@@ -30,7 +79,7 @@ double HungarianEigen::solve(const Eigen::MatrixXd& cost_matrix,Eigen::VectorXi&
     assignment = Eigen::VectorXi::Constant(nRows, -1);
 
     // Working state matrices
-    Eigen::MatrixXd dist = cost_matrix;
+    Eigen::MatrixXd dist = padding_used ? cost_matrix_padded : cost_matrix;
     Eigen::MatrixXi star  = Eigen::MatrixXi::Zero(nRows, nCols);
     Eigen::MatrixXi prime = Eigen::MatrixXi::Zero(nRows, nCols);
 
@@ -295,27 +344,40 @@ double HungarianEigen::solve(const Eigen::MatrixXd& cost_matrix,Eigen::VectorXi&
     // Build assignment from final starred zeros
     buildAssignment();
 
-    // Compute cost
+    if (padding_used)
+    {
+        assignment.conservativeResize(cost_matrix.rows());
+        for (Index r = 0; r < cost_matrix.rows(); ++r)
+        {
+            if (assignment[r] >= cost_matrix.cols())
+            {
+                assignment[r] = -1;
+            }
+        }
+    }
+
+    // Compute cost using original matrix only
     double totalCost = 0.0;
-    for (Index r = 0; r < nRows; ++r)
+    for (Index r = 0; r < cost_matrix.rows(); ++r)
     {
         int c = assignment[r];
-        if (c >= 0)
+        if (c >= 0 && c < cost_matrix.cols())
+        {
             totalCost += cost_matrix(r, c);
+        }
     }
     return totalCost;
 }
 
-std::vector<std::pair<size_t,size_t>> HungarianEigen::asVectorPairs(Eigen::VectorXi& completed_assignment)
+std::vector<std::pair<int,int>> HungarianEigen::asVectorPairs(Eigen::VectorXi& completed_assignment)
 {
-    std::vector<std::pair<size_t,size_t>> out_vec;
+    std::vector<std::pair<int,int>> out_vec;
 
     // Completed assignments is such that it shows completed_assignment[i] = j or -1 if unassigned
     // Whether i is the task or resource is up to the user to figure out when using the cost matrix
     // While this distinction doesnt matter for the solver, the user needs to be clear semantically on
     // what the resource is and what the task is
 
-    // pretty gross way of iterating but this is suggested by the eigen docs
     size_t i = 0;
     for (const auto &j : completed_assignment)
     {
@@ -325,4 +387,3 @@ std::vector<std::pair<size_t,size_t>> HungarianEigen::asVectorPairs(Eigen::Vecto
     
     return out_vec;
 }
-

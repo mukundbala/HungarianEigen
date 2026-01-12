@@ -26,5 +26,5 @@ public:
      * @param Eigen::VectorXi& Completed assignments which is produced by the solve method
      * @return The pairs of resource:task as a vector. 
      */
-    std::vector<std::pair<size_t,size_t>> asVectorPairs(Eigen::VectorXi& completed_assignment);
+    std::vector<std::pair<int,int>> asVectorPairs(Eigen::VectorXi& completed_assignment);
 };
